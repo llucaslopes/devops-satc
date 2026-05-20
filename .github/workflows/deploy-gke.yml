@@ -1,0 +1,69 @@
+name: Deploy para GKE
+
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-gke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Definir tag da imagem
+        id: image
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            echo "tag=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Autenticar no Google Cloud (OIDC)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider2
+          service_account: gke-deploy-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configurar Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Obter credenciais GKE
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER_NAME }}
+          location: ${{ vars.GKE_CLUSTER_LOCATION }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Substituir placeholders nos manifests
+        run: |
+          for f in k8s/*.yaml; do
+            sed -i "s|##DOCKER_USERNAME##|${{ secrets.DOCKER_USERNAME }}|g" "$f"
+            sed -i "s|##K8S_NAMESPACE##|${{ vars.K8S_NAMESPACE }}|g" "$f"
+            sed -i "s|##K8S_TAG##|${{ steps.image.outputs.tag }}|g" "$f"
+          done
+
+      - name: Criar namespace se não existir
+        run: kubectl create namespace ${{ vars.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Aplicar manifests Kubernetes
+        run: kubectl apply -f k8s/ -n ${{ vars.K8S_NAMESPACE }}
+
+      - name: Aguardar rollout do deployment
+        run: kubectl rollout status deployment/app-satc -n ${{ vars.K8S_NAMESPACE }} --timeout=300s
