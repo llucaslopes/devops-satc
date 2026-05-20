@@ -19,15 +19,19 @@ jobs:
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v2
-        with:
-          args: >
-            -Dsonar.projectKey=${{ secrets.DOCKER_USERNAME }}_satc-devops
-            -Dsonar.organization=${{ secrets.DOCKER_USERNAME }}
-            -Dsonar.host.url=https://sonarcloud.io
-            -Dsonar.sources=.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Validar secrets do Docker Hub
+        run: |
+          if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then
+            echo "::error::Configure os secrets DOCKER_USERNAME e DOCKER_PASSWORD em Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
