@@ -5,6 +5,7 @@ export default function Home() {
   return (
     <div className="home">
       <h1>Bem-vindo ao DevOps SATC</h1>
+      <h1>Lucas Lopes</h1>
       <p className="lead">
         Sistema web simples para integrar Desenvolvimento e Operações,
         com foco em qualidade e confiabilidade.
